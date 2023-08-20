@@ -1,0 +1,152 @@
+% Clear any previous stray data
+clear;
+clc;
+
+% Experimental data - Time in 's' and creep strain (absolute values)
+exp_data=[0	0.000000000000000000
+2960.523555	0.001010544994963980
+7697.375361	0.001581724802151490
+13618.42247	0.001933215904839270
+21315.75078	0.002284712245194040
+29605.25908	0.002548332754571120
+39671.04858	0.002811953263948150
+50328.9475	0.003031636730780850
+66907.87	0.003383131325246650
+84671.05838	0.003690688877168150
+104802.6374	0.003998242937311550
+122565.7317	0.004261865192577650
+142105.2012	0.004525485701954650
+164605.265	0.004833043253876150
+184144.7345	0.005096663763253250
+206644.7042	0.005360284272630250
+226776.2832	0.005623904782007350
+254605.1905	0.006019332927239550
+281842.0825	0.006370829267594250
+306118.3333	0.006722322116171050
+330394.7252	0.007073814964747850
+349934.1948	0.007425309559213650
+365921.055	0.007776802407790350
+379539.3833	0.008128298748145150
+390197.3528	0.008479789850832950
+400263.0717	0.008831286191187750
+408552.6036	0.009182779039764450
+415065.7601	0.009534271888341250
+422763.1355	0.010017575864551000
+430460.5108	0.010588755671738600
+436381.5579	0.011159931987148100
+442302.605	0.011862921176079600
+447039.3863	0.012478032788144500
+451776.3086	0.013181020231187100
+455921.0275	0.014103693759895900
+460065.6523	0.015158174051515100
+463618.4029	0.016212655216079000
+463618.4029	0.016212655216079000
+465394.6841	0.017223200211043100
+467171.0594	0.019112480819227000];
+
+t=exp_data(:,1);
+e=exp_data(:,2);
+
+% Count of datapoints
+n=length(t);
+
+% Plot of experimental data
+figure(1)
+plot(t,e)
+title('Creep curve');
+legend('Experimental');
+xlabel('time (ms)');
+ylabel('strain,\epsilon')
+hold on
+
+% Least Square regression (Curvefit)
+e_calc = @(Th, t) Th(1)*(1-exp(-Th(2)*t)) + Th(3)*(exp(Th(4)*t)-1); 
+Th0=[5.897E-03	1.475E-05	8.659E-07	2.011E-05];
+options = optimoptions('lsqcurvefit','Algorithm','trust-region-reflective', ...
+    'MaxFunctionEvaluations',20000,'MaxIterations', 20000,'StepTolerance',1e-12);
+lb=[0 0 0 0];
+ub=[1 1 1 1];
+Th_fit = lsqcurvefit(e_calc, Th0, t,e,lb,ub,options); 
+% Display regressed result of Theta coeffecients
+format long
+Th_fit
+
+% Plot of regressed (calculated creep strain Vs Time) curve
+e_calc=Th_fit(1)*(1-exp(-Th_fit(2)*t)) + Th_fit(3)*(exp(Th_fit(4)*t)-1);
+plot(t,e_calc)
+legend('Experimental');
+
+% ANALYSIS OF VARIANCE (ERRORS)
+
+for i=1:length(t)
+    t(i)=t(i);
+%calculation of variance (errors) in each datapoint
+    v(i,1)=[e(i)-e_calc(i)];
+%calculation of preceeding error for auto-correlation
+    chi1(i)=1-exp(-Th_fit(2)*t(i));
+    chi2(i)=Th_fit(1)*t(i)*exp(-Th_fit(2)*t(i));
+    chi3(i)=(exp(Th_fit(4)*t(i)))-1;
+    chi4(i)=Th_fit(3)*t(i)*exp(-Th_fit(4)*t(i));
+end
+
+% Sensitivity Matrix chi
+chi=[chi1',chi2',chi3',chi4'];
+
+% Plot of variance (errors) with time
+figure(2)
+tiledlayout(2,1)
+nexttile
+plot(t,v)
+ax = gca;
+ax.XAxisLocation = 'origin';
+title('Variance');
+xlabel('time (ms)');
+ylabel('Error,v')
+
+% Autocorrelation of errors (1st order)
+for k=2:n
+    v_pr(k,1)=v(k-1);
+end
+
+% Autocorrelation coefficient, rho
+rho=(sum(v.*v_pr))/(sumsqr(v));
+nexttile
+mdl = fitlm(v_pr,v,'poly1',RobustOpts='bisquare')
+
+%Plot of autocorrelation of errrors
+plotAdded(mdl)
+ax = gca;
+ay = gca;
+ax.XAxisLocation = 'origin';
+ay.YAxisLocation = 'origin';
+title('Auto-correlation of errors');
+xlabel('Previous error, at t-1');
+ylabel('Error at t')
+rho2=mdl.Coefficients{"x1","Estimate"}
+
+% Standard deviation of errors, sigma
+   v_ac=(v-(rho*v_pr));
+   sigma=sqrt(sumsqr(v_ac)/(n-5));
+
+% Correlation matrix of Theta coefficients, omega
+Var=zeros(4,4);
+
+for ii=1:n
+X(ii,:)=[1-exp(-Th_fit(2)*t(ii)),Th_fit(1)*t(ii)*exp(-Th_fit(2)*t(ii)),(exp(Th_fit(4)*t(ii)))-1,Th_fit(3)*t(ii)*exp(-Th_fit(4)*t(ii))];
+end
+
+for jj=1:n
+    S_0(jj,1)=(((v(jj))^2)*X(jj,:)*X(jj,:)');
+end
+
+for l=1:8
+for kk=(l+1):n
+q(l)=l/9;
+S_1(kk,1)=(q(l)*v(kk)*v(kk-1)*((X(kk,:)*X(kk-1,:)')+(X(kk-1,:)*X(kk,:)')));
+end
+end
+
+autocorr=sum(S_0)+sum(S_1);
+
+format long
+Var=(inv((X')*X))*autocorr*(inv((X')*X))
