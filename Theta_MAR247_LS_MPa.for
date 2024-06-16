@@ -1,9 +1,40 @@
 C Subroutine for Creep analysis using Theta Projection Method
 C Updated 14th Dec 2023 by VaradhaYamunan KK
-C Material constants derived for MAR-M-247 using Unique solution (Inversion)
+C Material constants derived for MAR-M-247 using Least square regression (MATLAB)
 C Experimental curves taken : 800degC_500 MPa, 900_250, 950_300, 1000_200
 C Units : Stresses in MPa, Forces in N, lengths in mm, time in s
 C
+C USER FIELD SUBROUTINE TO REDUCE YOUNGS MODULUS UPON DAMAGE
+C
+      SUBROUTINE USDFLD(FIELD,STATEV,PNEWDT,DIRECT,T,CELENT,
+     1 TIME,DTIME,CMNAME,ORNAME,NFIELD,NSTATV,NOEL,NPT,LAYER,
+     2 KSPT,KSTEP,KINC,NDI,NSHR,COORD,JMAC,JMATYP,MATLAYO,LACCFLA)
+C
+      INCLUDE 'ABA_PARAM.INC'
+C
+      CHARACTER*80 CMNAME,ORNAME
+      CHARACTER*3  FLGRAY(15)
+      DIMENSION FIELD(NFIELD),STATEV(NSTATV),DIRECT(3,3),T(3,3),TIME(2)
+      DIMENSION ARRAY(15),JARRAY(15),JMAC(*),JMATYP(*),COORD(*)
+C      
+      DOUBLE PRECISION EQP,STRAIN_AMP,STRAIN_RATE
+C
+C STIFFNESS DEGRADATION AFTER LIFE TIME DEPLETION
+C      
+      IF (STATEV(4).LT.1d0) THEN
+          FIELD(1)= 1d0
+      ENDIF
+C      
+      IF (STATEV(4).GE.1d0) THEN
+          FIELD(1) = 1d0/(STATEV(4))
+      ENDIF
+C
+C Above segment reduces the Young's modulus (user defined field 1) proportionally
+C with creep life fraction, after creep life has been depleted
+C      
+      RETURN
+      END
+C      
 *USER SUBROUTINE
 C
       SUBROUTINE CREEP(DECRA,DESWA,STATEV,SERD,EC,ESW,P,QTILD,TEMP,
@@ -30,7 +61,9 @@ C
 	DESWA(I)=0.0d0
       ENDDO
 C
-	A1= -2.9949480806d+01
+C MATERIAL CONSTANTS FOR THETA COEFFICIENTS
+c
+      A1= -2.9949480806d+01
 	B1= -1.2575371687d-03
 	C1= 1.7711238000d-02
 	D1= 1.1085235857d-05
@@ -56,7 +89,9 @@ C
       BF= 2.14571905d-02
       CF= -2.65877477d-02
       DF= -3.84887680d-05
-C            
+C
+C ASSIGNING STRESS AS VON-MISES (DEVIATORIC) STRESS
+C
     1 STRESS = QTILD
 C     
 C DEFINE LOWER & UPPER LIMITS OF STRESS
@@ -185,12 +220,21 @@ C
           STATEV(5) = (TIME(2))/((3.6d3)*ABS(STATEV(4)))
       ENDIF
 C
-C ELEMENT DELETION BASED ON CREEP LIFE FRACTION
+C ELEMENT DELETION & TERMINATION OF ANALYSIS
 C      
-      IF (STATEV(3).GE.WF) THEN
-          STATEV(5)=0d0
+      IF (STATEV(4).GE.2.5d0) THEN
+         STATEV(5)=0d0
       ENDIF
-C
-      
+C Above segment deletes the element when stiffness is less than 40% of initial stiffness
+C (Young's modulus starts reducing after the creep life has been depleted)
+C      
+      IF (STATEV(4).GE.20d0) THEN
+          CALL XIT
+      ENDIF
+C Above segment terminates the analysis once stiffness is less than 5% of initial stiffness
+C to prevent convergence issues. Supress the above for analysis with uniform stress distribution
+C or if the model has stress concentration
+C      
     4 RETURN
       END
+      
